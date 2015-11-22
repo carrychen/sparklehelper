@@ -25,29 +25,37 @@
 
 @property (retain) IBOutlet NSTextField *title;
 
-@property (retain) IBOutlet NSTextField *link;
 @property (retain) IBOutlet NSTextField *desc;
 
 @property (assign) IBOutlet NSTextField *itemTitle;
-@property (assign) IBOutlet NSTextField *noteLink;
-@property (assign) IBOutlet NSTextField *pubDate;
-@property (assign) IBOutlet NSTextField *itemUrl;
 @property (assign) IBOutlet NSTextField *version;
 @property (assign) IBOutlet NSTextField *sourceAppPath;
 @property (assign) IBOutlet NSTextField *destPath;
 @property (assign) IBOutlet NSTextField *lang;
 @property (assign) IBOutlet NSProgressIndicator *indicator;
-
+@property (strong) NSDictionary* plistInfo;
+@property (strong) NSString* pubDate;
 @end
 
 @implementation AppDelegate
 
 - (void)applicationDidFinishLaunching:(NSNotification *)aNotification {
     // Insert code here to initialize your application
+
+    _pubDate = @"Wed, 09 Jan 2015 19:20:12 +0000";
+    NSString* srcPath = [self getPref:MA_sourceAppPath];
+    [self loadPlist:srcPath];
+    
     [self loadFromPref];
     [_indicator setHidden:YES];
 }
-
+-(void)loadPlist:(NSString*)srcPath
+{
+    if(srcPath==nil) return;
+    NSString* resourcePath = [[NSBundle mainBundle] resourcePath];
+    NSString *plistPath = [NSString stringWithFormat:@"%@/Contents/Info.plist",srcPath];
+    _plistInfo = [[NSDictionary alloc] initWithContentsOfFile:plistPath];
+}
 -(NSString*)getPref:(NSString*)key
 {
    if(key==nil) return @"";
@@ -66,21 +74,19 @@
 -(void)loadFromPref
 {
     _title.stringValue = [self getPref:MA_Title];
-    _link.stringValue = [self getPref:MA_link];
     _desc.stringValue = [self getPref:MA_desc];
     _itemTitle.stringValue = [self getPref:MA_itemtitle];
-    _noteLink.stringValue = [self getPref:MA_notelink];
-    _pubDate.stringValue = [self getPref:MA_pubdate];
-    _itemUrl.stringValue = [self getPref:MA_itemurl];
-    _version.stringValue = [self getPref:MA_version];
+     _version.stringValue = [self getPref:MA_version];
     _sourceAppPath.stringValue = [self getPref:MA_sourceAppPath];
     _destPath.stringValue = [self getPref:MA_destPath];
     _lang.stringValue = [self getPref:MA_lang];
     
+
+    
     NSString* src = _sourceAppPath.stringValue;
     if(src&&src.length>0)
     {
-        NSString* version = [self getVersiontFromAppBundle:src];
+        NSString* version = [self getVersion];
         if(version&&version.length>0)
         {
             _version.stringValue = version;
@@ -94,13 +100,9 @@
 -(void)storeToPref
 {
     [self setPref:MA_Title value:_title.stringValue];
-    [self setPref:MA_link value:_link.stringValue];
-    [self setPref:MA_desc value:_desc.stringValue];
+     [self setPref:MA_desc value:_desc.stringValue];
     [self setPref:MA_itemtitle value:_itemTitle.stringValue];
-    [self setPref:MA_notelink value:_noteLink.stringValue];
-    [self setPref:MA_pubdate value:_pubDate.stringValue];
-    [self setPref:MA_itemurl value:_itemUrl.stringValue];
-    [self setPref:MA_lang value:_lang.stringValue];
+     [self setPref:MA_lang value:_lang.stringValue];
     [self setPref:MA_version value:_version.stringValue];
     [self setPref:MA_sourceAppPath value:_sourceAppPath.stringValue];
     [self setPref:MA_destPath value:_destPath.stringValue];
@@ -116,8 +118,8 @@
         NSString* path = p.filename;
         _sourceAppPath.stringValue = path;
     
-        
-        _version.stringValue = [self getVersiontFromAppBundle:path];
+        [self loadPlist:path];
+        _version.stringValue = [self getVersion];
         
         _itemTitle.stringValue=[NSString stringWithFormat:@"Version %@",_version.stringValue];
     }
@@ -173,18 +175,25 @@
     return YES;
 }
 
--(NSString*) getVersiontFromAppBundle:(NSString*)path
+-(NSString*) getVersion
 {
-    NSString *plistPath = [NSString stringWithFormat:@"%@/Contents/Info.plist",path];
-    NSDictionary* info = [[NSDictionary alloc] initWithContentsOfFile:plistPath];
-    if(info)
-    {
-        NSString* version = [info objectForKey:@"CFBundleVersion"];
-        if(version==nil) version = @"";
-        return version;
-    }
-    return nil;
-    
+    NSString* version = [_plistInfo objectForKey:@"CFBundleVersion"];
+    if(version==nil) version = @"";
+    return version;
+}
+
+ //http://127.0.0.1/appcast.xml
+-(NSString*)getFeedUrl
+{
+    NSString* url = [_plistInfo objectForKey:@"SUFeedURL"];
+    /*if(url==nil) return @"";
+    NSArray* coms = [url componentsSeparatedByString:@"//"];
+    if(coms.count<2) return @"";
+    url = coms[1];
+    coms = [url componentsSeparatedByString:@"/"];
+    if(coms.count<1) return @"";
+    url = coms[0];*/
+    return url;
 }
 
 -(NSString*)sigApp:(NSString*)destDir zipAppName:(NSString*)zipAppName pubKeyPath:(NSString*)pubKeyPath
@@ -212,6 +221,8 @@
     fclose(f);
     return l;
 }
+
+
 - (IBAction)onGen:(id)sender {
     
     [_indicator setHidden:NO];
@@ -234,16 +245,28 @@
         int fileSize = [self getFileSize:fullDestFilePath];
         
         NSString *appcastTmplPath = [NSString stringWithFormat:@"%@/appcast.xml",[[NSBundle mainBundle] resourcePath]];
+        
+        NSString* version = [self getVersion];
+        NSString* link = [self getFeedUrl];
+        
+        NSString* nodeLink = [NSString stringWithFormat:@"%@/%@.html", [link stringByDeletingLastPathComponent],version];
+        NSString* itemUrl = [NSString stringWithFormat:@"%@/%@.zip", [link stringByDeletingLastPathComponent],title];
+
+        //gen note
+        NSString* localNotePath = [NSString stringWithFormat:@"%@/%@.html",dest,version];
+        NSString* noteContent = [NSString stringWithFormat:@"<html><body>%@ Beta %@</body></html>",title,version];
+        [noteContent writeToFile:localNotePath atomically:YES];
+        
         NSString* temp = [NSString stringWithContentsOfFile:appcastTmplPath];
         NSString  *appcast = [NSString  stringWithFormat:temp,
                               _title.stringValue,
-                              _link.stringValue,
+                              link,
                               _desc.stringValue,
                               _lang.stringValue,
                               _itemTitle.stringValue,
-                              _noteLink.stringValue,
-                              _pubDate.stringValue,
-                              _itemUrl.stringValue,
+                              nodeLink,
+                              _pubDate,
+                              itemUrl,
                               _version.stringValue,
                               [NSString stringWithFormat:@"%d",fileSize],
                               sig
